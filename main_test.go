@@ -36,13 +36,23 @@ func TestRegisterHandler(t *testing.T) {
 	if res.StatusCode != http.StatusCreated {
 		t.Errorf("expected status %d; got %d", http.StatusCreated, res.StatusCode)
 	}
+
+	// 비밀번호가 해싱되어 저장되었는지 검증
+	if hashedPassword, exists := userStore["testuser"]; exists {
+		if checkPasswordHash("password123", hashedPassword) == false {
+			t.Error("password hash does not match")
+		}
+	} else {
+		t.Error("user not found in userStore")
+	}
 }
 
 // 회원가입 중복 체크 테스트
 func TestRegisterHandlerDuplicate(t *testing.T) {
 	// 준비
 	userStore = make(map[string]string)
-	userStore["testuser"] = "password123" // 이미 존재하는 사용자
+	hashedPassword, _ := hashPassword("password123")
+	userStore["testuser"] = hashedPassword // 이미 존재하는 사용자
 	reqBody := createUserPayload("testuser", "password123")
 
 	// HTTP 요청 생성
@@ -63,7 +73,8 @@ func TestRegisterHandlerDuplicate(t *testing.T) {
 func TestLoginHandlerSuccess(t *testing.T) {
 	// 준비
 	userStore = make(map[string]string)
-	userStore["testuser"] = "password123" // 테스트 유저 추가
+	hashedPassword, _ := hashPassword("password123")
+	userStore["testuser"] = hashedPassword // 비밀번호 해싱 후 저장
 	reqBody := createUserPayload("testuser", "password123")
 
 	// HTTP 요청 생성
@@ -84,7 +95,8 @@ func TestLoginHandlerSuccess(t *testing.T) {
 func TestLoginHandlerInvalidPassword(t *testing.T) {
 	// 준비
 	userStore = make(map[string]string)
-	userStore["testuser"] = "password123"
+	hashedPassword, _ := hashPassword("password123")
+	userStore["testuser"] = hashedPassword
 	reqBody := createUserPayload("testuser", "wrongpassword")
 
 	// HTTP 요청 생성

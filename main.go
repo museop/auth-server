@@ -6,6 +6,8 @@ import (
 	"log"
 	"net/http"
 	"sync"
+
+	"golang.org/x/crypto/bcrypt"
 )
 
 // User 구조체
@@ -16,9 +18,21 @@ type User struct {
 
 // 메모리 데이터 저장소
 var (
-	userStore = make(map[string]string) // username: password
+	userStore = make(map[string]string) // username: hashedPassword
 	mutex     = sync.Mutex{}            // 동시 접근 방지용 뮤텍스
 )
+
+// 비밀번호 해싱 함수
+func hashPassword(password string) (string, error) {
+	bytes, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	return string(bytes), err
+}
+
+// 비밀번호 검증 함수
+func checkPasswordHash(password, hash string) bool {
+	err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(password))
+	return err == nil
+}
 
 // 회원가입 핸들러
 func registerHandler(w http.ResponseWriter, r *http.Request) {
@@ -42,8 +56,15 @@ func registerHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 메모리에 저장
-	userStore[user.Username] = user.Password
+	// 비밀번호 해싱
+	hashedPassword, err := hashPassword(user.Password)
+	if err != nil {
+		http.Error(w, "Failed to hash password", http.StatusInternalServerError)
+		return
+	}
+
+	// 해시된 비밀번호 저장
+	userStore[user.Username] = hashedPassword
 	w.WriteHeader(http.StatusCreated)
 	fmt.Fprintf(w, "User %s registered successfully", user.Username)
 }
@@ -64,9 +85,10 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
 	mutex.Lock()
 	defer mutex.Unlock()
 
-	// 유저 확인 및 비밀번호 검증
-	if password, exists := userStore[user.Username]; exists {
-		if password == user.Password {
+	// 유저 확인
+	if hashedPassword, exists := userStore[user.Username]; exists {
+		// 비밀번호 검증
+		if checkPasswordHash(user.Password, hashedPassword) {
 			fmt.Fprintf(w, "Login successful for user %s", user.Username)
 			return
 		}
