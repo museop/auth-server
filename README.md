@@ -6,7 +6,7 @@
 3. 데이터 저장: 메모리 내 **맵(Map)**을 사용
 4. HTTP API: JSON 형식의 요청과 응답
 
-## 테스트
+## 동작 확인
 
 ### 회원가입
 ```
@@ -35,4 +35,19 @@ curl -X POST -H "Content-Type: application/json" -d '{"username":"testuser", "pa
 응답:
 ```
 Invalid password
+```
+
+## 테스트
+
+테스트 실행:
+
+```
+go test
+```
+
+출력 예시:
+
+```
+PASS
+ok  	_/path/to/auth-server	0.005s
 ```
