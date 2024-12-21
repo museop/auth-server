@@ -22,10 +22,13 @@ User testuser registered successfully
 curl -X POST -H "Content-Type: application/json" -d '{"username":"testuser", "password":"password123"}' http://localhost:8080/login
 ```
 
-응답:
+응답 시:
 ```
-Login successful for user testuser
+{
+  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VybmFtZSI6InRlc3R1c2VyIiwiZXhwIjoxNjg1MzgxNzI4fQ.TyIgU2YmIQrX"
+}
 ```
+
 
 ### 로그인 실패 (잘못된 비밀번호)
 ```
@@ -35,6 +38,17 @@ curl -X POST -H "Content-Type: application/json" -d '{"username":"testuser", "pa
 응답:
 ```
 Invalid password
+```
+
+### 보호된 리소스 접근
+
+```
+curl -X GET -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VybmFtZSI6InRlc3R1c2VyIiwiZXhwIjoxNjg1MzgxNzI4fQ.TyIgU2YmIQrX" http://localhost:8080/protected
+```
+
+응답:
+```
+You have accessed a protected resource!
 ```
 
 ## 테스트
