@@ -5,10 +5,12 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/joho/godotenv"
 	"github.com/museop/auth-server/store"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -149,9 +151,33 @@ func protectedHandler(w http.ResponseWriter, _ *http.Request) {
 	fmt.Fprintf(w, "You have accessed a protected resource!")
 }
 
+func getDSN() string {
+	// .env 파일 로드
+	err := godotenv.Load()
+	if err != nil {
+		log.Fatalf("Error loading .env file: %v", err)
+	}
+
+	// 환경 변수 읽기
+	user := os.Getenv("DB_USER")
+	password := os.Getenv("DB_PASSWORD")
+	dbName := os.Getenv("DB_NAME")
+	host := os.Getenv("DB_HOST")
+	port := os.Getenv("DB_PORT")
+
+	// DSN 생성
+	return fmt.Sprintf("postgres://%s:%s@%s:%s/%s?sslmode=disable", user, password, host, port, dbName)
+}
+
 func main() {
-	// 메모리 저장소 사용
-	userStore = store.NewInMemoryUserStore()
+	// // 메모리 저장소 사용
+	// userStore = store.NewInMemoryUserStore()
+
+	var err error
+	userStore, err = store.NewPostgreSQLUserStore(getDSN())
+	if err != nil {
+		log.Fatalf("Failed to connect to database: %v", err)
+	}
 
 	// 라우트 설정
 	http.HandleFunc("/register", registerHandler)
