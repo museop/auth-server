@@ -27,10 +27,11 @@ go run main.go
 ```sh
 curl -X POST -H "Content-Type: application/json" -d '{"username":"testuser", "password":"password123"}' http://localhost:8080/register
 ```
+
 응답:
 ```sh
 User testuser registered successfully
-```sh
+```
 
 ### 로그인 성공
 ```sh
