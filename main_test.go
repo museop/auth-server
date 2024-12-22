@@ -9,11 +9,15 @@ import (
 	"testing"
 
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/museop/auth-server/store"
 )
 
 // 사용자 정보를 JSON으로 직렬화하기 위한 헬퍼 함수
 func createUserPayload(username, password string) []byte {
-	user := User{
+	user := struct {
+		Username string `json:"username"`
+		Password string `json:"password"`
+	}{
 		Username: username,
 		Password: password,
 	}
@@ -21,10 +25,15 @@ func createUserPayload(username, password string) []byte {
 	return data
 }
 
+func setupTestUserStore() {
+	userStore = store.NewInMemoryUserStore()
+}
+
 // 회원가입 테스트
 func TestRegisterHandler(t *testing.T) {
+	setupTestUserStore() // 테스트 환경 초화
+
 	// 준비
-	userStore = make(map[string]string) // 테스트를 위해 메모리 저장소 초기화
 	reqBody := createUserPayload("testuser", "password123")
 
 	// HTTP 요청 생성
@@ -40,29 +49,31 @@ func TestRegisterHandler(t *testing.T) {
 		t.Errorf("expected status %d; got %d", http.StatusCreated, res.StatusCode)
 	}
 
-	// 비밀번호가 해싱되어 저장되었는지 검증
-	if hashedPassword, exists := userStore["testuser"]; exists {
-		if checkPasswordHash("password123", hashedPassword) == false {
-			t.Error("password hash does not match")
-		}
-	} else {
-		t.Error("user not found in userStore")
+	// 저장소에 사용자 확인
+	hashedPassword, err := userStore.GetUser("testuser")
+	if err != nil {
+		t.Errorf("failed to find user in store: %v", err)
+	}
+
+	// 비밀번호 해싱 검증
+	if !checkPasswordHash("password123", hashedPassword) {
+		t.Errorf("stored password hash does not match")
 	}
 }
 
-// 회원가입 중복 체크 테스트
+// 회원가입 중복 사용자 체크 테스트
 func TestRegisterHandlerDuplicate(t *testing.T) {
-	// 준비
-	userStore = make(map[string]string)
-	hashedPassword, _ := hashPassword("password123")
-	userStore["testuser"] = hashedPassword // 이미 존재하는 사용자
-	reqBody := createUserPayload("testuser", "password123")
+	setupTestUserStore() // 테스트 환경 초기화
 
-	// HTTP 요청 생성
+	// 첫 번째 사용자 등록
+	reqBody := createUserPayload("testuser", "password123")
 	req := httptest.NewRequest(http.MethodPost, "/register", bytes.NewReader(reqBody))
 	rec := httptest.NewRecorder()
+	registerHandler(rec, req)
 
-	// 핸들러 호출
+	// 동일 사용자로 다시 등록
+	req = httptest.NewRequest(http.MethodPost, "/register", bytes.NewReader(reqBody))
+	rec = httptest.NewRecorder()
 	registerHandler(rec, req)
 
 	// 결과 검증
@@ -74,17 +85,18 @@ func TestRegisterHandlerDuplicate(t *testing.T) {
 
 // 로그인 성공 테스트
 func TestLoginHandlerSuccess(t *testing.T) {
-	// 준비
-	userStore = make(map[string]string)
-	hashedPassword, _ := hashPassword("password123")
-	userStore["testuser"] = hashedPassword // 비밀번호 해싱 후 저장
+	setupTestUserStore() // 테스트 환경 초기화
+
+	// 사용자 등록
 	reqBody := createUserPayload("testuser", "password123")
-
-	// HTTP 요청 생성
-	req := httptest.NewRequest(http.MethodPost, "/login", bytes.NewReader(reqBody))
+	req := httptest.NewRequest(http.MethodPost, "/register", bytes.NewReader(reqBody))
 	rec := httptest.NewRecorder()
+	registerHandler(rec, req)
 
-	// 핸들러 호출
+	// 로그인
+	reqBody = createUserPayload("testuser", "password123")
+	req = httptest.NewRequest(http.MethodPost, "/login", bytes.NewReader(reqBody))
+	rec = httptest.NewRecorder()
 	loginHandler(rec, req)
 
 	// 결과 검증
@@ -93,7 +105,7 @@ func TestLoginHandlerSuccess(t *testing.T) {
 		t.Errorf("expected status %d; got %d", http.StatusOK, res.StatusCode)
 	}
 
-	// 응답 본문에서 JWT 토큰 추출
+	// 응답 본문에서 JWT 토큰 추출 및 검증
 	var responseBody map[string]string
 	err := json.NewDecoder(res.Body).Decode(&responseBody)
 	if err != nil {
@@ -129,17 +141,18 @@ func TestLoginHandlerSuccess(t *testing.T) {
 
 // 로그인 실패 테스트 (잘못된 비밀번호)
 func TestLoginHandlerInvalidPassword(t *testing.T) {
-	// 준비
-	userStore = make(map[string]string)
-	hashedPassword, _ := hashPassword("password123")
-	userStore["testuser"] = hashedPassword
-	reqBody := createUserPayload("testuser", "wrongpassword")
+	setupTestUserStore() // 테스트 환경 초기화
 
-	// HTTP 요청 생성
-	req := httptest.NewRequest(http.MethodPost, "/login", bytes.NewReader(reqBody))
+	// 사용자 등록
+	reqBody := createUserPayload("testuser", "password123")
+	req := httptest.NewRequest(http.MethodPost, "/register", bytes.NewReader(reqBody))
 	rec := httptest.NewRecorder()
+	registerHandler(rec, req)
 
-	// 핸들러 호출
+	// 잘못된 비밀번호로 로그인
+	reqBody = createUserPayload("testuser", "wrongpassword")
+	req = httptest.NewRequest(http.MethodPost, "/login", bytes.NewReader(reqBody))
+	rec = httptest.NewRecorder()
 	loginHandler(rec, req)
 
 	// 결과 검증
@@ -151,15 +164,12 @@ func TestLoginHandlerInvalidPassword(t *testing.T) {
 
 // 로그인 실패 테스트 (존재하지 않는 사용자)
 func TestLoginHandlerUserNotFound(t *testing.T) {
-	// 준비
-	userStore = make(map[string]string)
-	reqBody := createUserPayload("nonexistent", "password123")
+	setupTestUserStore() // 테스트 환경 초기화
 
-	// HTTP 요청 생성
+	// 존재하지 않는 사용자로 로그인
+	reqBody := createUserPayload("nonexistent", "password123")
 	req := httptest.NewRequest(http.MethodPost, "/login", bytes.NewReader(reqBody))
 	rec := httptest.NewRecorder()
-
-	// 핸들러 호출
 	loginHandler(rec, req)
 
 	// 결과 검증

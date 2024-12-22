@@ -6,10 +6,10 @@ import (
 	"log"
 	"net/http"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/museop/auth-server/store"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -19,11 +19,7 @@ type User struct {
 	Password string `json:"password"`
 }
 
-// 메모리 데이터 저장소
-var (
-	userStore = make(map[string]string) // username: hashedPassword
-	mutex     = sync.Mutex{}            // 동시 접근 방지용 뮤텍스
-)
+var userStore store.UserStore
 
 // JWT Secret Key
 var jwtSecretKey = []byte("mySecretKey") // 실제 배포 시에는 안전하게 관리 필요
@@ -92,15 +88,6 @@ func registerHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	mutex.Lock()
-	defer mutex.Unlock()
-
-	// 이미 존재하는 유저 체크
-	if _, exists := userStore[user.Username]; exists {
-		http.Error(w, "User already exists", http.StatusConflict)
-		return
-	}
-
 	// 비밀번호 해싱
 	hashedPassword, err := hashPassword(user.Password)
 	if err != nil {
@@ -108,8 +95,13 @@ func registerHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 해시된 비밀번호 저장
-	userStore[user.Username] = hashedPassword
+	// 사용자 저장
+	err = userStore.SaveUser(user.Username, hashedPassword)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusConflict)
+		return
+	}
+
 	w.WriteHeader(http.StatusCreated)
 	fmt.Fprintf(w, "User %s registered successfully", user.Username)
 }
@@ -127,29 +119,28 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	mutex.Lock()
-	defer mutex.Unlock()
+	// 사용자 검색
+	hashedPassword, err := userStore.GetUser(user.Username)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
 
-	// 유저 확인
-	if hashedPassword, exists := userStore[user.Username]; exists {
-		// 비밀번호 검증
-		if checkPasswordHash(user.Password, hashedPassword) {
-			// JWT 토큰 발급
-			token, err := generateJWT(user.Username)
-			if err != nil {
-				http.Error(w, "Failed to generate token", http.StatusInternalServerError)
-				return
-			}
-
-			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(map[string]string{"token": token})
-			return
-		}
+	// 비밀번호 검증
+	if !checkPasswordHash(user.Password, hashedPassword) {
 		http.Error(w, "Invalid password", http.StatusUnauthorized)
 		return
 	}
 
-	http.Error(w, "User does not exist", http.StatusNotFound)
+	// JWT 토큰 발급
+	token, err := generateJWT(user.Username)
+	if err != nil {
+		http.Error(w, "Failed to generate token", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"token": token})
 }
 
 // 보호된 리소스 핸들러
@@ -159,6 +150,9 @@ func protectedHandler(w http.ResponseWriter, _ *http.Request) {
 }
 
 func main() {
+	// 메모리 저장소 사용
+	userStore = store.NewInMemoryUserStore()
+
 	// 라우트 설정
 	http.HandleFunc("/register", registerHandler)
 	http.HandleFunc("/login", loginHandler)
